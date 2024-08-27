@@ -203,7 +203,7 @@ These modifications allow WireGuard to operate over TCP, enabling compatibility 
     `}`  
 `}`
 
-* This code checks if the current connection matches an entry in the pending list and, if so, promotes it to an active connection, updating the peer's state accordingly.
+This code checks if the current connection matches an entry in the pending list and, if so, promotes it to an active connection, updating the peer's state accordingly.
 
 **Protection for TCP-Related State**:
 
@@ -271,83 +271,102 @@ The `wg_socket_data` structure includes a boolean to indicate if a connection is
      **`void (*original_outbound_data_ready)(struct sock *sk);`**  
      **`void (*original_outbound_error_report)(struct sock *sk);`**  
      **`void (*original_outbound_destruct)(struct sock *sk);`**  
-   * These pointers store the original socket callbacks for outbound connections. They are used to restore the original behavior when TCP-specific handling is no longer needed.  
-   * Similar sets of callbacks exist for inbound connections (`original_inbound_*`).  
-       
+     * These pointers store the original socket callbacks for outbound connections. They are used to restore the original behavior when TCP-specific handling is no longer needed.  
+     * Similar sets of callbacks exist for inbound connections (`original_inbound_*`).
+
+     
+
 3. **TCP Callback Flags:**  
    * **`bool tcp_outbound_callbacks_set;`**  
      **`bool tcp_inbound_callbacks_set;`**  
-   * These flags indicate whether the respective callbacks have been set for the inbound or outbound sockets to avoid pathological corruption of the TCP stack processing.  
-     .  
+     * These flags indicate whether the respective callbacks have been set for the inbound or outbound sockets to avoid pathological corruption of the TCP stack processing.
+
+     .
+
 4. **Connection Timestamps:**  
    * **`ktime_t outbound_timestamp, inbound_timestamp;`**  
-   * Timestamps that record when the last outbound or inbound connection attempt or handshake exchange  was made or successfully established. These timestamps are used to identify which of the potential remote connections to route packets to. Last handshake wins.  
-     .  
+     * Timestamps that record when the last outbound or inbound connection attempt or handshake exchange  was made or successfully established. These timestamps are used to identify which of the potential remote connections to route packets to. Last handshake wins.
+
+     .
+
 5. **Socket Address Information:**  
    * **`struct sockaddr_storage inbound_source, outbound_source, inbound_dest, outbound_dest;`**  
-   * Storage for socket addresses used in inbound and outbound connections, encapsulating both IPv4 and IPv6 address information.  
-       
+     * Storage for socket addresses used in inbound and outbound connections, encapsulating both IPv4 and IPv6 address information.
+
+     
+
 6. **Partial Read Management:**  
    * **`struct sk_buff *partial_skb;`**  
      **`size_t expected_len;`**  
      **`size_t received_len;`**  
-   * Used to handle partially received data during TCP reads. `partial_skb` stores the current buffer, while `expected_len` and `received_len` track the total expected data length and the amount of data received so far.  
-       
+     * Used to handle partially received data during TCP reads. `partial_skb` stores the current buffer, while `expected_len` and `received_len` track the total expected data length and the amount of data received so far.
+
+     
+
 7. **Packet Queuing:**  
    * **`struct sk_buff_head tcp_packet_queue;`**  
-   * Queue for managing TCP packets that are pending transmission or processing.
+     * Queue for managing TCP packets that are pending transmission or processing.
 
 8. **Work and Scheduling:**  
    * **`struct delayed_work tcp_retry_work;`**  
      **`struct delayed_work tcp_outbound_remove_work;`**  
      **`struct delayed_work tcp_inbound_remove_work;`**  
      **`struct delayed_work tcp_cleanup_work;`**  
-   * Structures for managing scheduled work items related to TCP connection retries, socket removal, and cleanup.
+     * Structures for managing scheduled work items related to TCP connection retries, socket removal, and cleanup.
 
 9. **TCP Connection State Flags:**  
    * **`bool tcp_retry_scheduled;`**  
      **`bool tcp_outbound_remove_scheduled;`**  
      **`bool tcp_inbound_remove_scheduled;`**  
      **`bool tcp_cleanup_scheduled;`**  
-   * Flags to track whether specific work items are scheduled.  
-       
+     * Flags to track whether specific work items are scheduled.
+
+     
+
 10. **Connection State Flags:**  
     * **`bool tcp_established;`**  
       **`bool tcp_pending;`**  
       **`bool inbound_connected;`**  
       **`bool outbound_connected;`**  
-    * These flags track the state of the TCP connection:  
-      * `tcp_established`: Indicates if a TCP connection has been successfully established.  
-      * `tcp_pending`: Indicates if a connection attempt is in progress.  
-      * `inbound_connected`: Indicates an established inbound connection.  
-      * `outbound_connected`: Indicates an established outbound connection.  
-          
+      * These flags track the state of the TCP connection:  
+        1. `tcp_established`: Indicates if a TCP connection has been successfully established.  
+        2. `tcp_pending`: Indicates if a connection attempt is in progress.  
+        3. `inbound_connected`: Indicates an established inbound connection.  
+        4. `outbound_connected`: Indicates an established outbound connection.
+
+        
+
 11. **Cleanup Flags:**  
     * **`bool clean_outbound;`**  
       **`bool clean_inbound;`**  
-    * Flags to indicate whether inbound or outbound sockets should be cleaned up at the next opportunity.
+      * Flags to indicate whether inbound or outbound sockets should be cleaned up at the next opportunity.
 
 12. **Temporary Peer Flag:**  
     * **`bool temp_peer;`**  
-    * Indicates if the peer is a temporary one, used for handling incoming connections that may not correspond to pre-configured peers.
+      * Indicates if the peer is a temporary one, used for handling incoming connections that may not correspond to pre-configured peers.
 
 13. **Send Queue and Lock:**  
     * **`struct sk_buff_head send_queue;`**  
       **`spinlock_t send_queue_lock;`**  
-    * Queue for managing outgoing packets and a corresponding lock for thread-safe access.
+      * Queue for managing outgoing packets and a corresponding lock for thread-safe access.
 
 14. **Pending Connection List:**  
     * **`struct list_head pending_connection_list;`**  
-    * List to manage peers that are awaiting connection handshakes  
-      .  
-        
+      * List to manage peers that are awaiting connection handshakes
+
+      .
+
+      
+
 15. **Locks for Synchronization:**  
     * **`spinlock_t tcp_lock;`**  
       **`spinlock_t tcp_read_lock;`**  
       **`spinlock_t tcp_write_lock;`**  
       **`spinlock_t tcp_transfer_lock;`**  
-    * Spinlocks to protect access to TCP-related states and operations, ensuring thread safety.  
-        
+      * Spinlocks to protect access to TCP-related states and operations, ensuring thread safety.
+
+      
+
 16. **Work and Workqueues for Data Processing:**  
     * **`struct work_struct tcp_read_work;`**  
       **`struct workqueue_struct *tcp_read_wq;`**  
@@ -355,13 +374,15 @@ The `wg_socket_data` structure includes a boolean to indicate if a connection is
       **`struct workqueue_struct *tcp_write_wq;`**  
       **`struct work_struct tcp_transfer_work;`**  
       **`struct workqueue_struct *tcp_transfer_wq;`**  
-    * Work structures and workqueues used to manage asynchronous data processing tasks for reading, writing, and transferring TCP data.  
-        
+      * Work structures and workqueues used to manage asynchronous data processing tasks for reading, writing, and transferring TCP data.
+
+      
+
 17. **Worker Scheduling Flags:**  
     * **`bool tcp_read_worker_scheduled;`**  
       **`bool tcp_write_worker_scheduled;`**  
       **`bool tcp_transfer_worker_scheduled;`**  
-    * Flags to indicate whether the respective TCP worker (read/write/transfer) is currently scheduled to run.
+      * Flags to indicate whether the respective TCP worker (read/write/transfer) is currently scheduled to run.
 
 18. **Delayed and Periodic Worker Routines:**  
       
