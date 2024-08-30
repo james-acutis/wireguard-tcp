@@ -18,4 +18,4 @@ To build the WireGuardTCP wireguard kernel module requires several steps:
  - Recompile the wireguard module with "make M=drivers/net/wireguard modules"
  - Reinstall the wireguard module with "make M=drivers/net/wireguard modules_install"
  - Rebuild the userland wg source from the wgt-userland.tgz file, and do a make install to install the new configuraiton utility that supports the "trasport (udp/tcp)" keyword for device/peer configuration.
- - All other configuraiton can proceed as the original variant.
+ - All other configuration can proceed as the original variant.
