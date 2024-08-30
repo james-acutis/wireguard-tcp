@@ -13,7 +13,7 @@ The remaining files are documentating and design documents.
 
 To build the WireGuardTCP wireguard kernel module requires several steps:
 
- - Add the "wireguard.h" include file that adds the modified netlink message for transport mode to the kernel by copying it to your build tree at ./include/uapi/lunix/wireguard.h
+ - Add the "wireguard.h" include file that adds the modified netlink message for transport mode to the kernel by copying it to your build tree at ./include/uapi/linux/wireguard.h
  - Rebuild and reinstall a new kernel
  - Recompile the wireguard module with "make M=drivers/net/wireguard modules"
  - Reinstall the wireguard module with "make M=drivers/net/wireguard modules_install"
