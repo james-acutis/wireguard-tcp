@@ -1,0 +1,252 @@
+diff --git a/wireguard-tools/src/Makefile b/wireguard-tools/src/Makefile
+index 0533910bd13d..2ec09d54c63b 100644
+--- a/wireguard-tools/src/Makefile
++++ b/wireguard-tools/src/Makefile
+@@ -46,7 +46,7 @@ CFLAGS += -Wall -Wextra
+ CFLAGS += -MMD -MP
+ CFLAGS += -DRUNSTATEDIR="\"$(RUNSTATEDIR)\""
+ ifeq ($(DEBUG),yes)
+-CFLAGS += -g
++CFLAGS += -g -DDEBUG=$(DEBUG)
+ endif
+ WIREGUARD_TOOLS_VERSION = $(patsubst v%,%,$(shell GIT_DIR="$(PWD)/../.git" git describe --dirty 2>/dev/null))
+ ifneq ($(WIREGUARD_TOOLS_VERSION),)
+diff --git a/wireguard-tools/src/config.c b/wireguard-tools/src/config.c
+index 81ccb479c367..a2b83a53af83 100644
+--- a/wireguard-tools/src/config.c
++++ b/wireguard-tools/src/config.c
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0 OR MIT
+ /*
++ * TCP Support Copyright (c) 2024 Jeff Nathan and Dragos Ruiu. All Rights Reserved.
+  * Copyright (C) 2015-2020 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+  */
+ 
+@@ -410,6 +411,18 @@ err:
+ 	return false;
+ }
+ 
++static inline bool parse_transport(uint8_t *transport, const char *value)
++{
++	if (!strcasecmp(value, "tcp")) {
++		*transport = WG_TRANSPORT_TCP;
++		return true;
++	} else if (!strcasecmp(value, "udp")) {
++		*transport = WG_TRANSPORT_UDP;
++		return true;
++	} else
++		return false;
++}
++
+ static bool process_line(struct config_ctx *ctx, const char *line)
+ {
+ 	const char *value;
+@@ -450,6 +463,9 @@ static bool process_line(struct config_ctx *ctx, const char *line)
+ 			ret = parse_key(ctx->device->private_key, value);
+ 			if (ret)
+ 				ctx->device->flags |= WGDEVICE_HAS_PRIVATE_KEY;
++		} else if (key_match("Transport")) {
++			ret = parse_transport(&ctx->device->transport, value);
++			ctx->device->flags |= WGDEVICE_HAS_TRANSPORT;
+ 		} else
+ 			goto error;
+ 	} else if (ctx->is_peer_section) {
+@@ -588,6 +604,12 @@ struct wgdevice *config_read_cmd(const char *argv[], int argc)
+ 			device->flags |= WGDEVICE_HAS_PRIVATE_KEY;
+ 			argv += 2;
+ 			argc -= 2;
++		} else if (!strcmp(argv[0], "transport") && argc >= 2 && !peer) {
++			if (!parse_transport(&device->transport, argv[1]))
++				goto error;
++			device->flags |= WGDEVICE_HAS_TRANSPORT;
++			argv += 2;
++			argc -= 2;
+ 		} else if (!strcmp(argv[0], "peer") && argc >= 2) {
+ 			struct wgpeer *new_peer = calloc(1, sizeof(*new_peer));
+ 
+diff --git a/wireguard-tools/src/containers.h b/wireguard-tools/src/containers.h
+index a82e8ddee46a..82e8769eb90f 100644
+--- a/wireguard-tools/src/containers.h
++++ b/wireguard-tools/src/containers.h
+@@ -71,7 +71,8 @@ enum {
+ 	WGDEVICE_HAS_PRIVATE_KEY = 1U << 1,
+ 	WGDEVICE_HAS_PUBLIC_KEY = 1U << 2,
+ 	WGDEVICE_HAS_LISTEN_PORT = 1U << 3,
+-	WGDEVICE_HAS_FWMARK = 1U << 4
++	WGDEVICE_HAS_FWMARK = 1U << 4,
++	WGDEVICE_HAS_TRANSPORT = 1U << 5
+ };
+ 
+ struct wgdevice {
+@@ -87,6 +88,7 @@ struct wgdevice {
+ 	uint16_t listen_port;
+ 
+ 	struct wgpeer *first_peer, *last_peer;
++	uint8_t transport;
+ };
+ 
+ #define for_each_wgpeer(__dev, __peer) for ((__peer) = (__dev)->first_peer; (__peer); (__peer) = (__peer)->next_peer)
+diff --git a/wireguard-tools/src/ipc-linux.h b/wireguard-tools/src/ipc-linux.h
+index d29c0c5dbf9b..5b060a894e08 100644
+--- a/wireguard-tools/src/ipc-linux.h
++++ b/wireguard-tools/src/ipc-linux.h
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: MIT
+ /*
++ * TCP Support Copyright (c) 2024 Jeff Nathan and Dragos Ruiu. All Rights Reserved.
+  * Copyright (C) 2015-2020 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+  */
+ 
+@@ -167,6 +168,8 @@ again:
+ 			mnl_attr_put_u32(nlh, WGDEVICE_A_FWMARK, dev->fwmark);
+ 		if (dev->flags & WGDEVICE_REPLACE_PEERS)
+ 			flags |= WGDEVICE_F_REPLACE_PEERS;
++		if (dev->flags & WGDEVICE_HAS_TRANSPORT)
++			mnl_attr_put_u8(nlh, WGDEVICE_A_TRANSPORT, dev->transport);
+ 		if (flags)
+ 			mnl_attr_put_u32(nlh, WGDEVICE_A_FLAGS, flags);
+ 	}
+@@ -439,6 +442,10 @@ static int parse_device(const struct nlattr *attr, void *data)
+ 		if (!mnl_attr_validate(attr, MNL_TYPE_U32))
+ 			device->fwmark = mnl_attr_get_u32(attr);
+ 		break;
++	case WGDEVICE_A_TRANSPORT:
++		if (!mnl_attr_validate(attr, MNL_TYPE_U8))
++			device->transport = mnl_attr_get_u8(attr);
++		break;
+ 	case WGDEVICE_A_PEERS:
+ 		return mnl_attr_parse_nested(attr, parse_peers, device);
+ 	}
+diff --git a/wireguard-tools/src/netlink.h b/wireguard-tools/src/netlink.h
+index f9729ee280f1..b7348a5740d0 100644
+--- a/wireguard-tools/src/netlink.h
++++ b/wireguard-tools/src/netlink.h
+@@ -318,6 +318,11 @@ static void mnl_attr_put(struct nlmsghdr *nlh, uint16_t type, size_t len,
+ 		memset(mnl_attr_get_payload(attr) + len, 0, pad);
+ }
+ 
++static void mnl_attr_put_u8(struct nlmsghdr *nlh, uint8_t type, uint8_t data)
++{
++	mnl_attr_put(nlh, type, sizeof(uint8_t), &data);
++}
++
+ static void mnl_attr_put_u16(struct nlmsghdr *nlh, uint16_t type, uint16_t data)
+ {
+ 	mnl_attr_put(nlh, type, sizeof(uint16_t), &data);
+diff --git a/wireguard-tools/src/set.c b/wireguard-tools/src/set.c
+index 75560fd8cf62..00a37788ca7a 100644
+--- a/wireguard-tools/src/set.c
++++ b/wireguard-tools/src/set.c
+@@ -12,13 +12,18 @@
+ #include "ipc.h"
+ #include "subcommands.h"
+ 
++void show_usage(const char *command)
++{
++	fprintf(stderr, "Usage: %s %s <interface> [listen-port <port>] [fwmark <mark>] [private-key <file path>] [peer <base64 public key> [remove] [preshared-key <file path>] [endpoint <ip>:<port>] [persistent-keepalive <interval seconds>] [allowed-ips <ip1>/<cidr1>[,<ip2>/<cidr2>]...] [transport tcp/udp]...\n", PROG_NAME, command);
++}
++
+ int set_main(int argc, const char *argv[])
+ {
+ 	struct wgdevice *device = NULL;
+ 	int ret = 1;
+ 
+ 	if (argc < 3) {
+-		fprintf(stderr, "Usage: %s %s <interface> [listen-port <port>] [fwmark <mark>] [private-key <file path>] [peer <base64 public key> [remove] [preshared-key <file path>] [endpoint <ip>:<port>] [persistent-keepalive <interval seconds>] [allowed-ips <ip1>/<cidr1>[,<ip2>/<cidr2>]...] ]...\n", PROG_NAME, argv[0]);
++		show_usage(argv[0]);
+ 		return 1;
+ 	}
+ 
+@@ -27,7 +32,6 @@ int set_main(int argc, const char *argv[])
+ 		goto cleanup;
+ 	strncpy(device->name, argv[1], IFNAMSIZ -  1);
+ 	device->name[IFNAMSIZ - 1] = '\0';
+-
+ 	if (ipc_set_device(device) != 0) {
+ 		perror("Unable to modify interface");
+ 		goto cleanup;
+@@ -37,5 +41,7 @@ int set_main(int argc, const char *argv[])
+ 
+ cleanup:
+ 	free_wgdevice(device);
++	if (ret != 0)
++		show_usage(argv[0]);
+ 	return ret;
+ }
+diff --git a/wireguard-tools/src/show.c b/wireguard-tools/src/show.c
+index 13777cf04280..0eed3a8acdcd 100644
+--- a/wireguard-tools/src/show.c
++++ b/wireguard-tools/src/show.c
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0 OR MIT
+ /*
++ * TCP Support Copyright (c) 2024 Jeff Nathan and Dragos Ruiu. All Rights Reserved.
+  * Copyright (C) 2015-2020 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+  */
+ 
+@@ -126,6 +127,15 @@ static char *endpoint(const struct sockaddr *addr)
+ 	return buf;
+ }
+ 
++static char *transport(const uint32_t transport_val)
++{
++	if (transport_val == WG_TRANSPORT_UDP)
++		return "udp";
++	else if (transport_val == WG_TRANSPORT_TCP)
++		return "tcp";
++	return "unknown";
++}
++
+ static size_t pretty_time(char *buf, const size_t len, unsigned long long left)
+ {
+ 	size_t offset = 0;
+@@ -220,6 +230,7 @@ static void pretty_print(struct wgdevice *device)
+ 		terminal_printf("  " TERMINAL_BOLD "listening port" TERMINAL_RESET ": %u\n", device->listen_port);
+ 	if (device->fwmark)
+ 		terminal_printf("  " TERMINAL_BOLD "fwmark" TERMINAL_RESET ": 0x%x\n", device->fwmark);
++	terminal_printf("  " TERMINAL_BOLD "transport" TERMINAL_RESET ": %s\n", transport(device->transport));
+ 	if (device->first_peer) {
+ 		sort_peers(device);
+ 		terminal_printf("\n");
+diff --git a/wireguard-tools/src/showconf.c b/wireguard-tools/src/showconf.c
+index 62070dc27af2..cb40cc4276ae 100644
+--- a/wireguard-tools/src/showconf.c
++++ b/wireguard-tools/src/showconf.c
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0 OR MIT
+ /*
++ * TCP Support Copyright (c) 2024 Jeff Nathan and Dragos Ruiu. All Rights Reserved.
+  * Copyright (C) 2015-2020 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+  */
+ 
+@@ -46,6 +47,8 @@ int showconf_main(int argc, const char *argv[])
+ 		key_to_base64(base64, device->private_key);
+ 		printf("PrivateKey = %s\n", base64);
+ 	}
++	if (device->transport)
++		printf("TransportMode = %s\n", (device->transport == WG_TRANSPORT_TCP ? "tcp" : "udp"));
+ 	printf("\n");
+ 	for_each_wgpeer(device, peer) {
+ 		key_to_base64(base64, peer->public_key);
+diff --git a/wireguard-tools/src/uapi/linux/linux/wireguard.h b/wireguard-tools/src/uapi/linux/linux/wireguard.h
+index 0efd52c3687d..6aa2d07ee960 100644
+--- a/wireguard-tools/src/uapi/linux/linux/wireguard.h
++++ b/wireguard-tools/src/uapi/linux/linux/wireguard.h
+@@ -136,6 +136,9 @@
+ 
+ #define WG_KEY_LEN 32
+ 
++#define WG_TRANSPORT_UDP 0
++#define WG_TRANSPORT_TCP 1
++
+ enum wg_cmd {
+ 	WG_CMD_GET_DEVICE,
+ 	WG_CMD_SET_DEVICE,
+@@ -157,6 +160,7 @@ enum wgdevice_attribute {
+ 	WGDEVICE_A_LISTEN_PORT,
+ 	WGDEVICE_A_FWMARK,
+ 	WGDEVICE_A_PEERS,
++	WGDEVICE_A_TRANSPORT,
+ 	__WGDEVICE_A_LAST
+ };
+ #define WGDEVICE_A_MAX (__WGDEVICE_A_LAST - 1)
