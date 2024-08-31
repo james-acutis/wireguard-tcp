@@ -14,8 +14,9 @@ The remaining files are documentating and design documents.
 To build the WireGuardTCP wireguard kernel module requires several steps:
 
  - Add the "wireguard.h" include file that adds the modified netlink message for transport mode to the kernel by copying it to your build tree at ./include/uapi/linux/wireguard.h
+ - Backup the existing /usr/include/linux/wireguard.h file and the "wireguard.h" include file in this repository in its place so you may build the updated wireguard userland tool.
  - Rebuild and reinstall a new kernel
  - Recompile the wireguard module with "make M=drivers/net/wireguard modules"
  - Reinstall the wireguard module with "make M=drivers/net/wireguard modules_install"
- - Rebuild the userland wg source from the wgt-userland.tgz file, and do a make install to install the new configuraiton utility that supports the "trasport (udp/tcp)" keyword for device/peer configuration.
+ - Rebuild the userland wg source from the wgt-userland.tgz file, and do a make install to install the new configuration utility that supports the "trasport (udp/tcp)" keyword for device/peer configuration.
  - All other configuration can proceed as the original variant.
