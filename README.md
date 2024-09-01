@@ -23,9 +23,9 @@ Building the WireGuardTCP wireguard kernel module requires several steps:
  - Create a directory and cd into that directory
  - Obtain the Wireguard userland sources from git
    - git clone https://git.zx2c4.com/wireguard-tools
- - cd into the parent directory you clined the wireguard-tools from
- - Download the wireguard-tools.diff patch from this repository into the parent directory from the previous step
- - Patch the wireguard-tools using the command "patch -p1 < wireguard-tools.tgz"
+ - cd into the directory you cloned the wireguard-tools into (the parent directory of wireguard-tools)
+ - Download the wireguard-tools.diff patch from this repository into the parent directory of the cloned wireguard-tools repository
+ - Patch the wireguard-tools using the command "patch -p1 < wireguard-tools.diff"
  - cd into the wireguard-tools/src directory
  - Build the wireguard userland using the command "make"
 
