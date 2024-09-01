@@ -30,7 +30,7 @@ Building the WireGuardTCP wireguard kernel module requires several steps:
  - Build the wireguard userland using the command "make"
 
 ## Special notes for using Wireguard in TCP mode  
- - After creating a wireguard device, you must decrese its MTU. Try a value around 1100 bytes for starters creating 
+ - After creating a wireguard device, you must specify a smaller MTU. Try a value around 1100 bytes to begin with 
  - When configuring Wireguard for TCP
    - First add the interface
    - Then give it an IP address
