@@ -22,7 +22,7 @@ Building the WireGuardTCP wireguard kernel module requires several steps:
  ## Userland
  - Create a directory and cd into that directory
  - Obtain the Wireguard userland sources from git
-  - git clone https://git.zx2c4.com/wireguard-tools
+   - git clone https://git.zx2c4.com/wireguard-tools
  - cd into the parent directory you clined the wireguard-tools from
  - Download the wireguard-tools.diff patch from this repository into the parent directory from the previous step
  - Patch the wireguard-tools using the command "patch -p1 < wireguard-tools.tgz"
@@ -32,10 +32,10 @@ Building the WireGuardTCP wireguard kernel module requires several steps:
 ## Special notes for using Wireguard in TCP mode  
  - After creating a wireguard device, you must decrese its MTU. Try a value around 1100 bytes for starters creating 
  - When configuring Wireguard for TCP
-  - First add the interface
-  - Then give it an IP address
-  - Then set the MTU of the address
-  - Add the Wireguard private key
-  - Instruct Wireguard to use TCP using the command "wg set wg0 transport udp"
-  - Then bring up the interface
+   - First add the interface
+   - Then give it an IP address
+   - Then set the MTU of the interface
+   - Add the Wireguard private key
+   - Configure Wireguard to use TCP using the command "wg set wg0 transport tcp"
+   - Then bring up the interface
  - All other configuration can proceed as the original variant.
