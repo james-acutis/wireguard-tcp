@@ -15,7 +15,7 @@ The remaining files are documentating and design documents.
  - Obtain kernel sources for your Linux distribution.
    - This implementation of WireGuard over TCP was developed using Ubuntu and instructions for obtaining kernel sources and building them can be found here: https://wiki.ubuntu.com/Kernel/BuildYourOwnKernel
  - Download the wireguard_tcp_clean.diff from this repository into the top-level directory containing the Linux kernel source code
- - Patch the Linux kernel sources from within the top-level directory using the command "patch -p2 < wireguard_tcp_clean.diff
+ - Patch the Linux kernel sources from within the top-level directory using the command "patch -p2 < wireguard_tcp_clean.diff"
  - Rebuild and reinstall a new kernel
  - Recompile the wireguard module using the command "make M=drivers/net/wireguard modules"
  - Reinstall the wireguard module using the command "sudo make M=drivers/net/wireguard modules_install"
