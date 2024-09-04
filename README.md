@@ -1,13 +1,11 @@
 # wireguard-tcp
 This repository implements changes to the Linux kernel implementation of WireGuard to extend functionality and allow use of TCP as a transport protocol.
 
-There are three patches and a tarball of the source code in this repo at present.
-
-The wireguard_tcp_debug.diff is a diff that takes the clean linux kernel WireGuard module to a state with TCP implemented and verbose debugging code on. This patch works at present and has been tested to successfully implement a TCP version of WireGuard.
-
-The wireguard_tcp_clean.diff is a diff that takes the clean linux kernel WireGuard module to a state with TCP implemented and verbose debugging code pulled out. This works at present and has been tested to successfully implement a TCP version of WireGuard.
-
-The wireguard_tcp_kernel_code_debug.tgz is the source code after applying the wireguard_tcp_debug.diff.
+This software is composed of two patches in this repository:
+ - wireguard_tcp_clean.diff
+   - A diff that takes the clean linux kernel WireGuard module to a state with TCP implemented. This works at present and has been tested to successfully implement a TCP version of WireGuard.
+ - wireguard-tools.diff
+   - A diff that applies TCP functionality to the WireGuard userland tools 
 
 The remaining files are documentating and design documents.
 
