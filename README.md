@@ -27,15 +27,17 @@ The remaining files are documentating and design documents.
  - Download the wireguard-tools.diff patch from this repository into the parent directory of the cloned wireguard-tools repository
  - Patch the wireguard-tools using the command "patch -p1 < wireguard-tools.diff"
  - cd into the wireguard-tools/src directory
- - Build the wireguard userland using the command "make"
+ - Build the Wireguard userland using the command "make"
 
 ## Special notes for using Wireguard in TCP mode  
- - After creating a wireguard device, you must specify a smaller MTU. Try a value around 1100 bytes to begin with 
  - When configuring Wireguard for TCP
    - First add the interface
    - Then give it an IP address
-   - Then set the MTU of the interface
    - Add the Wireguard private key
    - Configure Wireguard to use TCP using the command "wg set wg0 transport tcp"
    - Then bring up the interface
  - All other configuration can proceed as the original variant.
+
+## Known issues
+ - This Wireguard over TCP implementation currently only transfers data with slow senders
+   - The problem exists on the receiver side and is still being debugged
