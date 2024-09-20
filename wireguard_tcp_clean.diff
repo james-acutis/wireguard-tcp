@@ -426,7 +426,7 @@ index e220d761b1f2..264aa3ca52b7 100644
  		struct nlattr *attr, *peer[WGPEER_A_MAX + 1];
  		int rem;
 diff --git a/wireguard-linux/drivers/net/wireguard/peer.c b/wireguard-linux/drivers/net/wireguard/peer.c
-index 1cb502a932e0..d43088f05d03 100644
+index 1cb502a932e0..a203efa3de18 100644
 --- a/wireguard-linux/drivers/net/wireguard/peer.c
 +++ b/wireguard-linux/drivers/net/wireguard/peer.c
 @@ -1,5 +1,6 @@
@@ -456,7 +456,7 @@ index 1cb502a932e0..d43088f05d03 100644
  struct wg_peer *wg_peer_create(struct wg_device *wg,
  			       const u8 public_key[NOISE_PUBLIC_KEY_LEN],
  			       const u8 preshared_key[NOISE_SYMMETRIC_KEY_LEN])
-@@ -59,7 +64,94 @@ struct wg_peer *wg_peer_create(struct wg_device *wg,
+@@ -59,7 +64,91 @@ struct wg_peer *wg_peer_create(struct wg_device *wg,
  	list_add_tail(&peer->peer_list, &wg->peer_list);
  	INIT_LIST_HEAD(&peer->allowedips_list);
  	wg_pubkey_hashtable_add(wg->peer_hashtable, peer);
@@ -480,9 +480,6 @@ index 1cb502a932e0..d43088f05d03 100644
 +	peer->partial_skb = NULL;  // Initialize the partial skb pointer to NULL
 +	peer->expected_len = 0;    // Initialize expected length to 0
 +	peer->received_len = 0;    // Initialize received length to 0
-+
-+	// Initialize the skb queue for queuing TCP packets
-+	skb_queue_head_init(&peer->tcp_packet_queue);
 +
 +	// Initialize the TCP retry scheduled flag to false
 +	peer->tcp_retry_scheduled = false;
@@ -551,7 +548,7 @@ index 1cb502a932e0..d43088f05d03 100644
  	pr_debug("%s: Peer %llu created\n", wg->dev->name, peer->internal_id);
  	return peer;
  
-@@ -79,15 +171,56 @@ struct wg_peer *wg_peer_get_maybe_zero(struct wg_peer *peer)
+@@ -79,15 +168,56 @@ struct wg_peer *wg_peer_get_maybe_zero(struct wg_peer *peer)
  
  static void peer_make_dead(struct wg_peer *peer)
  {
@@ -609,7 +606,7 @@ index 1cb502a932e0..d43088f05d03 100644
  	/* The caller must now synchronize_net() for this to take effect. */
  }
  
-@@ -158,7 +291,8 @@ void wg_peer_remove(struct wg_peer *peer)
+@@ -158,7 +288,8 @@ void wg_peer_remove(struct wg_peer *peer)
  	if (unlikely(!peer))
  		return;
  	lockdep_assert_held(&peer->device->device_update_lock);
@@ -620,7 +617,7 @@ index 1cb502a932e0..d43088f05d03 100644
  	synchronize_net();
  	peer_remove_after_dead(peer);
 diff --git a/wireguard-linux/drivers/net/wireguard/peer.h b/wireguard-linux/drivers/net/wireguard/peer.h
-index 76e4d3128ad4..fa936ffe1dd9 100644
+index 76e4d3128ad4..ab475ace3883 100644
 --- a/wireguard-linux/drivers/net/wireguard/peer.h
 +++ b/wireguard-linux/drivers/net/wireguard/peer.h
 @@ -1,5 +1,6 @@
@@ -665,7 +662,7 @@ index 76e4d3128ad4..fa936ffe1dd9 100644
  	struct dst_cache endpoint_cache;
  	rwlock_t endpoint_lock;
  	struct noise_handshake handshake;
-@@ -64,6 +56,70 @@ struct wg_peer {
+@@ -64,6 +56,69 @@ struct wg_peer {
  	struct list_head allowedips_list;
  	struct napi_struct napi;
  	u64 internal_id;
@@ -691,7 +688,6 @@ index 76e4d3128ad4..fa936ffe1dd9 100644
 +	struct sk_buff *partial_skb;
 +	size_t expected_len;
 +	size_t received_len;
-+	struct sk_buff_head tcp_packet_queue;	// For queuing TCP packets
 +
 +	struct delayed_work tcp_retry_work;	// Work for retrying TCP connection
 +	bool tcp_retry_scheduled;		// Flag to track connect retry scheduling
@@ -736,7 +732,7 @@ index 76e4d3128ad4..fa936ffe1dd9 100644
  };
  
  struct wg_peer *wg_peer_create(struct wg_device *wg,
-@@ -83,4 +139,12 @@ void wg_peer_remove_all(struct wg_device *wg);
+@@ -83,4 +138,12 @@ void wg_peer_remove_all(struct wg_device *wg);
  int wg_peer_init(void);
  void wg_peer_uninit(void);
  
@@ -750,7 +746,7 @@ index 76e4d3128ad4..fa936ffe1dd9 100644
 +
  #endif /* _WG_PEER_H */
 diff --git a/wireguard-linux/drivers/net/wireguard/receive.c b/wireguard-linux/drivers/net/wireguard/receive.c
-index db01ec03bda0..168b086e5cac 100644
+index db01ec03bda0..044b936b4d1e 100644
 --- a/wireguard-linux/drivers/net/wireguard/receive.c
 +++ b/wireguard-linux/drivers/net/wireguard/receive.c
 @@ -1,5 +1,6 @@
@@ -985,9 +981,9 @@ index db01ec03bda0..168b086e5cac 100644
  	bool packet_needs_cookie;
  	bool under_load;
  
-+	if (wg->transport == WG_TRANSPORT_TCP) { 
++	if (wg->transport == WG_TRANSPORT_UDP) { 
 +		// For TCP, skip cookie check
-+		packet_needs_cookie = false;
++		packet_needs_cookie = true;
 +		goto nocookie;
 +	}
 +
@@ -1019,7 +1015,7 @@ index db01ec03bda0..168b086e5cac 100644
  	} else if (under_load && mac_state == VALID_MAC_BUT_NO_COOKIE) {
 -		packet_needs_cookie = true;
 +		if (wg->transport == WG_TRANSPORT_UDP)
-+			packet_needs_cookie = false;
++			packet_needs_cookie = true;
  	} else {
  		net_dbg_skb_ratelimited("%s: Invalid MAC of handshake, dropping packet from %pISpfsc\n",
  					wg->dev->name, skb);
@@ -1205,7 +1201,7 @@ index db01ec03bda0..168b086e5cac 100644
  		goto packet_processed;
  
 diff --git a/wireguard-linux/drivers/net/wireguard/socket.c b/wireguard-linux/drivers/net/wireguard/socket.c
-index 0414d7a6ce74..901562efa38e 100644
+index 0414d7a6ce74..e9743cf9cf36 100644
 --- a/wireguard-linux/drivers/net/wireguard/socket.c
 +++ b/wireguard-linux/drivers/net/wireguard/socket.c
 @@ -1,25 +1,103 @@
@@ -1667,7 +1663,7 @@ index 0414d7a6ce74..901562efa38e 100644
  void wg_socket_reinit(struct wg_device *wg, struct sock *new4,
  		      struct sock *new6)
  {
-@@ -435,3 +669,2264 @@ void wg_socket_reinit(struct wg_device *wg, struct sock *new4,
+@@ -435,3 +669,2251 @@ void wg_socket_reinit(struct wg_device *wg, struct sock *new4,
  	sock_free(old4);
  	sock_free(old6);
  }
@@ -1758,8 +1754,6 @@ index 0414d7a6ce74..901562efa38e 100644
 +		}
 +	
 +		// Clean up packet queues
-+		if (!skb_queue_empty(&peer->tcp_packet_queue))
-+			skb_queue_purge(&peer->tcp_packet_queue);
 +		if (!skb_queue_empty(&peer->send_queue))
 +			skb_queue_purge(&peer->send_queue);
 +	
@@ -2551,7 +2545,6 @@ index 0414d7a6ce74..901562efa38e 100644
 +	}
 +
 +	// Clean up packet queues
-+    	skb_queue_purge(&peer->tcp_packet_queue);
 +    	skb_queue_purge(&peer->send_queue);
 +}
 +
@@ -2915,6 +2908,7 @@ index 0414d7a6ce74..901562efa38e 100644
 +        	goto out;
 +	}
 +
++	spin_lock_bh(&peer->send_queue_lock);
 +    	while ((skb = skb_peek(&peer->send_queue)) != NULL && sk_stream_is_writeable(sk)) {
 +		sent = wg_tcp_send(peer->peer_socket, skb->data, skb->len, 0, 0);  // no type or flags for now
 +        	if (sent > 0) {
@@ -2923,9 +2917,7 @@ index 0414d7a6ce74..901562efa38e 100644
 +                		skb_pull(skb, sent);
 +			} else {
 +				// Full send successful, dequeue and free the skb
-+				spin_lock_bh(&peer->send_queue_lock);
-+				__skb_unlink(skb, &peer->tcp_packet_queue);
-+				spin_unlock_bh(&peer->send_queue_lock);
++				__skb_unlink(skb, &peer->send_queue);
 +				kfree_skb(skb);
 +			}
 +        	} else if (sent == 0) {
@@ -2933,13 +2925,12 @@ index 0414d7a6ce74..901562efa38e 100644
 +            		break;
 +        	} else {
 +			// An error occurred, dequeue and free the skb
-+			spin_lock_bh(&peer->send_queue_lock);
-+			__skb_unlink(skb, &peer->tcp_packet_queue);
-+			spin_unlock_bh(&peer->send_queue_lock);
++			__skb_unlink(skb, &peer->send_queue);
 +            		kfree_skb(skb);
 +            			break;
 +        	}
 +    	}
++	spin_unlock_bh(&peer->send_queue_lock);
 +
 +out:
 +	spin_lock_bh(&peer->tcp_write_lock);
@@ -2974,7 +2965,7 @@ index 0414d7a6ce74..901562efa38e 100644
 +		// If there are less then 8 bytes left, give up (there's no room for a wg_tcp_encap_header)
 +		for (size_t i = 0; i <= peer->received_len - WG_TCP_ENCAP_HDR_LEN; ++i) {
 +			// Attempt to validate the header starting from the current byte
-+			struct wg_tcp_encap_header *potential_hdr = (struct wg_tcp_encap_header *)(peer->partial_skb + i);
++			struct wg_tcp_encap_header *potential_hdr = (struct wg_tcp_encap_header *)(peer->partial_skb->data + i);
 +			if (wg_validate_header_checksum(potential_hdr)) {
 +				found = true;
 +				// Adjust the skb to start from the found valid header
@@ -2988,7 +2979,8 @@ index 0414d7a6ce74..901562efa38e 100644
 +	// not in the existing buffer, try to read more
 +	read_skb = alloc_skb(WG_MAX_PACKET_SIZE + NET_IP_ALIGN, GFP_ATOMIC); // Allocate buffer for bulk read
 +	if (!read_skb) {
-+					pr_err("WireGuard: Failed to allocate skb for bulk data read\n");
++		pr_err("WireGuard: Failed to allocate skb for bulk data read\n");
++		goto out;
 +	}
 +	skb_reserve(read_skb, NET_IP_ALIGN);
 +	
@@ -3085,9 +3077,14 @@ index 0414d7a6ce74..901562efa38e 100644
 +		}
 +	}
 +
-+	// Ensure the SKB is linearized
-+	if (skb_linearize(skb) != 0) {
-+		return -ENOMEM;
++	// Check for paged data in the skb before forcibly linearizing it
++	if (skb_is_nonlinear(skb)) {
++		if (skb_linearize(skb) != 0) {
++			return -ENOMEM;
++		} else {
++			// Ensure skb sanity after skb_linearize by calling skb_reset_tail_pointer
++			skb_reset_tail_pointer(skb);
++		}
 +	}
 +
 +	// Calculate the payload length: initial length of skb before any header is added
@@ -3322,7 +3319,7 @@ index 0414d7a6ce74..901562efa38e 100644
 +					// Trim the partial_skb to exclude the leftover data
 +					skb_trim(peer->partial_skb, peer->expected_len);
 +					leftover_skb = alloc_skb(maxpacket*3 + NET_IP_ALIGN + sizeof(struct iphdr) + sizeof(struct udphdr) + ETH_HLEN + 32, GFP_ATOMIC);
-+					if (!new_skb) {
++					if (!leftover_skb) {
 +						pr_err("WireGuard: Failed to allocate skb\n");
 +						break;
 +					}
@@ -3338,18 +3335,6 @@ index 0414d7a6ce74..901562efa38e 100644
 +    						return;
 +					}
 +#endif // BROKENCHECK
-+					if (peer->expected_len + leftover_len <= peer->partial_skb->len) {
-+						if (skb_copy_bits(peer->partial_skb, peer->expected_len, leftover_skb->data, leftover_len) < 0) {
-+							pr_err("wg_tcp_read_worker: Failed to copy leftover data.\n");
-+								kfree_skb(leftover_skb);
-+								leftover_skb = NULL;
-+								wg_peer_discard_partial_read(peer);
-+								break;
-+						}
-+					} else {
-+    						wg_peer_discard_partial_read(peer);
-+    						break;
-+					}
 +	
 +					// Use skb_copy_bits to copy data from the end of partial_skb to the new leftover_skb
 +					if (skb_copy_bits(peer->partial_skb, peer->expected_len, leftover_skb->data, leftover_len) < 0) {
@@ -3705,7 +3690,7 @@ index 0414d7a6ce74..901562efa38e 100644
 +        	        		kfree_skb(entry->temp_peer->partial_skb);
 +				}
 +				// Clean up packet queues
-+    				skb_queue_purge(&entry->temp_peer->tcp_packet_queue);
++				skb_queue_purge(&entry->temp_peer->send_queue);
 +				
 +				// Check if the TCP read work is scheduled before canceling it
 +    				if (entry->temp_peer->tcp_read_worker_scheduled) {
@@ -3877,9 +3862,6 @@ index 0414d7a6ce74..901562efa38e 100644
 +	peer->expected_len = 0;    // Initialize expected length to 0
 +	peer->received_len = 0;    // Initialize received length to 0
 +
-+	// Initialize the skb queue for queuing TCP packets
-+	skb_queue_head_init(&peer->tcp_packet_queue);
-+
 +	// Initialize the delayed work for TCP connection retry
 +	INIT_DELAYED_WORK(&peer->tcp_retry_work, wg_tcp_retry_worker);
 +
@@ -3902,6 +3884,7 @@ index 0414d7a6ce74..901562efa38e 100644
 +
 +	// Initialize the spinlock for protecting TCP-related state
 +	spin_lock_init(&peer->tcp_lock);
++	spin_lock_init(&peer->tcp_transfer_lock);
 +
 +	// Initialize the skb queue for the TX send queue
 +	skb_queue_head_init(&peer->send_queue);
